@@ -3,27 +3,31 @@
 namespace App\Models;
 
 use App\Traits\HasUuid;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LicenseActivation extends Model
 {
-    use HasUuid;
+    use SoftDeletes, HasUuids;
 
     protected $fillable = [
+        'uuid',
         'license_id',
         'device_identifier',
         'device_name',
         'hardware_hash',
         'domain',
         'ip_address',
-        'metadata',
         'is_active',
+        'metadata',
         'activated_at',
         'activated_by',
         'last_check_in',
         'next_check_in',
         'deactivated_at',
-        'deactivated_by'
+        'deactivated_by',
+        'deactivation_reason'
     ];
 
     protected $casts = [

@@ -6,14 +6,16 @@ use App\Models\License;
 use App\Repositories\LicenseRepository;
 use App\Exceptions\LicenseValidationException;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use ParagonIE\HiddenString\HiddenString;
+use RuntimeException;
 
 class LicenseService
 {
+    private const TIMESTAMP = '2025-02-09 09:15:12';
+    private const USER = 'maab16';
 
     public function __construct(
         private readonly LicenseRepository $repository,
@@ -23,390 +25,367 @@ class LicenseService
 
     public function createLicense(array $data): License
     {
-        return DB::transaction(function () use ($data) {
-            $timestamp = Carbon::now();
-            $currentUser = Auth::check() ? Auth::user()->id : 'system';
-        
-            // Generate unique license key
-            $data['key'] = $this->generateLicenseKey();
-            
-            // Generate and ensure keys exist
+        try {
+            Log::info('Starting license creation');
+
+            // Generate key ID and UUID
             $keyId = Str::random(32);
-            $this->keyManagement->generateKeys($keyId);
-            
-            // Set key IDs
-            $data['encryption_key_id'] = $keyId;
-            $data['auth_key_id'] = $keyId;
+            $licenseId = (string) Str::uuid();
 
-            // Set timestamps
-            $data['created_at'] = $timestamp;
-            $data['updated_at'] = $timestamp;
-            $data['created_by'] = $currentUser;
+            // Generate encryption and authentication keys first
+            Log::debug('Generating keys', ['keyId' => $keyId]);
+            $keys = $this->keyManagement->generateKeys($keyId);
 
-            // Create license record
-            $license = $this->repository->create($data);
+            // Create the license data
+            $licenseData = array_merge($data, [
+                'id' => $licenseId,
+                'uuid' => Str::uuid(),
+                'encryption_key_id' => $keyId,
+                'auth_key_id' => $keyId,
+                'created_by' => self::USER,
+                'updated_by' => self::USER
+            ]);
 
-            // Create data for signature
-            $signatureData = [
-                'key' => $license->key,
-                'user_id' => $license->user_id,
-                'product_id' => $license->product_id,
-                'valid_until' => $license->valid_until->toIso8601String(),
-                'features' => $license->features,
-                'restrictions' => $license->restrictions,
-                'created_at' => $timestamp->toIso8601String(),
-                'created_by' => $currentUser
-            ];
+            // Convert license data to JSON
+            $licenseContent = json_encode($licenseData);
+            if ($licenseContent === false) {
+                throw new \RuntimeException('Failed to encode license data');
+            }
 
-            // First encrypt the data
-            $encryptedData = $this->encryption->encrypt(
-                $signatureData,
-                $license->encryption_key_id
-            );
+            // Create hidden string for content
+            $hiddenContent = new HiddenString($licenseContent);
 
-            // Then sign the encrypted data
-            $signature = $this->encryption->sign(
-                $encryptedData,
-                $license->auth_key_id
-            );
+            // Encrypt the license content
+            $encryptedContent = $this->encryption->encrypt($hiddenContent, $keyId);
 
-            // Store both the original data and encrypted version
-            $license->update([
-                'signature' => $signature,
-                'metadata' => array_merge($data['metadata'] ?? [], [
-                    '_signature' => [
-                        'data' => $signatureData,
-                        'encrypted' => $encryptedData
-                    ]
-                ])
+            // Create a new HiddenString for signing
+            $signatureContent = new HiddenString($licenseContent);
+            $signature = $this->encryption->sign($signatureContent, $keyId);
+
+            // Prepare final license data
+            $finalLicenseData = array_merge($licenseData, [
+                'key' => $encryptedContent,
+                'signature' => $signature
+            ]);
+
+            // Create and save the license
+            $license = License::create($finalLicenseData);
+            Log::info('License created successfully', [
+                'licenseId' => $license->id,
+                'keyId' => $keyId
             ]);
 
             return $license;
-        });
-    }
 
-    public function activateLicense(string $licenseKey, array $activationData): array
-    {
-        return DB::transaction(function () use ($licenseKey, $activationData) {
-            $timestamp = Carbon::now();
-            $currentUser = Auth::check() ? Auth::user()->id : 'system';;
-            
-            $license = $this->repository->findByKey($licenseKey);
-    
-            if (!$license) {
-                throw new LicenseValidationException('License not found');
-            }
-    
-            if (!$this->validateLicenseSignature($license)) {
-                throw new LicenseValidationException('Invalid license signature');
-            }
-    
-            if (!$license->isValid()) {
-                throw new LicenseValidationException('License is not valid or has expired');
-            }
-    
-            // Normalize and validate domain
-            $requestDomain = $this->normalizeDomain($activationData['domain']);
-            
-            // Check domain restriction if set
-            if (isset($license->restrictions['domain'])) {
-                if (!$this->isDomainAllowed($requestDomain, $license->restrictions['domain'])) {
-                    throw new LicenseValidationException(
-                        'Invalid domain. Domain must match or be a subdomain of: ' . 
-                        $license->restrictions['domain']
-                    );
-                }
-            }
-    
-            // Check for existing activation by domain
-            $existingDomainActivation = $license->activations()
-                ->where('domain', $requestDomain)
-                ->where('is_active', true)
-                ->first();
-    
-            // Check for existing activation by device
-            $existingDeviceActivation = $license->activations()
-                ->where('device_identifier', $activationData['device_identifier'])
-                ->first();
-    
-            // If domain is already activated on a different device
-            if ($existingDomainActivation && 
-                (!$existingDeviceActivation || 
-                 $existingDomainActivation->id !== $existingDeviceActivation->id)) {
-                throw new LicenseValidationException(
-                    "Domain {$requestDomain} is already activated on another device"
-                );
-            }
-    
-            if ($existingDeviceActivation) {
-                // Handle device reactivation
-                if (!$existingDeviceActivation->is_active) {
-                    // Check available seats before reactivation
-                    if (!$license->hasAvailableSeats()) {
-                        throw new LicenseValidationException('No available seats');
-                    }
-    
-                    $existingDeviceActivation->update([
-                        'is_active' => true,
-                        'device_name' => $activationData['device_name'],
-                        'hardware_hash' => $this->createHardwareHash($activationData['hardware']),
-                        'domain' => $requestDomain,
-                        'ip_address' => $activationData['ip_address'] ?? request()->ip(),
-                        'metadata' => array_merge(
-                            $existingDeviceActivation->metadata ?? [], 
-                            $activationData['metadata'] ?? []
-                        ),
-                        'activated_at' => $timestamp,
-                        'activated_by' => $currentUser,
-                        'last_check_in' => $timestamp,
-                        'next_check_in' => $timestamp->copy()->addDays(
-                            $license->settings['check_in_interval'] ?? 7
-                        ),
-                        'deactivated_at' => null,
-                        'deactivated_by' => null
-                    ]);
-    
-                    $this->repository->logLicenseEvent($license, 'reactivated', [
-                        'activation_id' => $existingDeviceActivation->id,
-                        'device_identifier' => $existingDeviceActivation->device_identifier,
-                        'domain' => $requestDomain,
-                        'hardware_hash' => $existingDeviceActivation->hardware_hash,
-                        'ip_address' => $existingDeviceActivation->ip_address,
-                        'activated_by' => $currentUser,
-                        'timestamp' => $timestamp->toIso8601String()
-                    ]);
-    
-                    return [
-                        'success' => true,
-                        'activation_id' => $existingDeviceActivation->id,
-                        'features' => $license->features,
-                        'expires_at' => $license->valid_until,
-                        'check_in_required_at' => $existingDeviceActivation->next_check_in,
-                        'activated_by' => $currentUser,
-                        'activated_at' => $timestamp->toIso8601String(),
-                        'status' => 'reactivated',
-                        'domain' => $requestDomain
-                    ];
-                }
-    
-                throw new LicenseValidationException('Device already activated for this license');
-            }
-    
-            // Check available seats for new activation
-            if (!$license->hasAvailableSeats()) {
-                throw new LicenseValidationException('No available seats');
-            }
-    
-            // Create new activation
-            $activation = $license->activations()->create([
-                'device_identifier' => $activationData['device_identifier'],
-                'device_name' => $activationData['device_name'],
-                'hardware_hash' => $this->createHardwareHash($activationData['hardware']),
-                'domain' => $requestDomain,
-                'ip_address' => $activationData['ip_address'] ?? request()->ip(),
-                'metadata' => $activationData['metadata'] ?? [],
-                'activated_at' => $timestamp,
-                'activated_by' => $currentUser,
-                'is_active' => true,
-                'last_check_in' => $timestamp,
-                'next_check_in' => $timestamp->copy()->addDays(
-                    $license->settings['check_in_interval'] ?? 7
-                )
+        } catch (\Exception $e) {
+            Log::error('License creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
-    
-            $this->repository->logLicenseEvent($license, 'activated', [
-                'activation_id' => $activation->id,
-                'device_identifier' => $activation->device_identifier,
-                'domain' => $requestDomain,
-                'hardware_hash' => $activation->hardware_hash,
-                'ip_address' => $activation->ip_address,
-                'activated_by' => $currentUser,
-                'timestamp' => $timestamp->toIso8601String()
-            ]);
-    
-            return [
-                'success' => true,
-                'activation_id' => $activation->id,
-                'features' => $license->features,
-                'expires_at' => $license->valid_until,
-                'check_in_required_at' => $activation->next_check_in,
-                'activated_by' => $currentUser,
-                'activated_at' => $timestamp->toIso8601String(),
-                'status' => 'new_activation',
-                'domain' => $requestDomain
-            ];
-        });
+            throw new \RuntimeException('Failed to create license: ' . $e->getMessage());
+        }
     }
 
-    private function normalizeDomain(string $domain): string
-    {
-        // Remove protocol and www if present
-        $domain = preg_replace('#^https?://(www\.)?#i', '', strtolower($domain));
-        // Remove trailing slashes and whitespace
-        return trim($domain, "/ \t\n\r\0\x0B");
-    }
-
-    private function isDomainAllowed(string $requestDomain, string $allowedDomain): bool
-    {
-        // Check if domains match exactly or if request domain is subdomain of allowed domain
-        return $requestDomain === $allowedDomain || 
-            (str_ends_with($requestDomain, '.' . $allowedDomain));
-    }
-
-    private function validateLicenseSignature(License $license): bool
+    public function verifyLicense(License $license): bool
     {
         try {
-            $signatureInfo = $license->metadata['_signature'] ?? null;
+            // Decrypt the license key
+            $decrypted = $this->encryption->decrypt(
+                $license->key,
+                $license->encryption_key_id
+            );
 
-            if (!$signatureInfo || !isset($signatureInfo['encrypted'])) {
-                Log::error('Missing signature data for license: ' . $license->key);
-                return false;
-            }
+            // Create a new HiddenString for verification
+            $verificationContent = new HiddenString($decrypted->getString());
 
-            // Use the stored encrypted data for verification
-            $encryptedData = $signatureInfo['encrypted'];
-
+            // Verify the signature
             return $this->encryption->verify(
-                $encryptedData,
+                $verificationContent,
                 $license->signature,
                 $license->auth_key_id
             );
 
         } catch (\Exception $e) {
-            Log::error('Error validating license signature: ' . $e->getMessage(), [
-                'license_key' => $license->key,
+            Log::error('License verification failed', [
+                'licenseId' => $license->id,
                 'error' => $e->getMessage()
             ]);
             return false;
         }
     }
 
-    public function deactivateLicense(string $licenseKey, string $deviceIdentifier): array
+    public function getLicenseContent(License $license): array
     {
-        return DB::transaction(function () use ($licenseKey, $deviceIdentifier) {
-            $timestamp = Carbon::now();
-            $currentUser = Auth::check() ? Auth::user()->id : 'system';;
+        try {
+            // Decrypt the license key
+            $decrypted = $this->encryption->decrypt(
+                $license->key,
+                $license->encryption_key_id
+            );
 
-            $license = $this->repository->findByKey($licenseKey);
+            // Create a new HiddenString for verification
+            $verificationContent = new HiddenString($decrypted->getString());
 
-            if (!$license) {
-                throw new LicenseValidationException('License not found');
+            // Verify the signature
+            if (!$this->encryption->verify(
+                $verificationContent,
+                $license->signature,
+                $license->auth_key_id
+            )) {
+                throw new \RuntimeException('Invalid license signature');
             }
 
-            $activation = $license->activations()
-                ->where('device_identifier', $deviceIdentifier)
-                ->where('is_active', true)
-                ->first();
-
-            if (!$activation) {
-                throw new LicenseValidationException('No active device found with this identifier');
+            // Decode the license content
+            $content = json_decode($decrypted->getString(), true);
+            if (!is_array($content)) {
+                throw new \RuntimeException('Invalid license content format');
             }
 
-            // Deactivate the device
-            $activation->update([
-                'is_active' => false,
-                'deactivated_at' => $timestamp,
-                'deactivated_by' => $currentUser
-            ]);
+            return $content;
 
-            // Log deactivation
-            $this->repository->logLicenseEvent($license, 'deactivated', [
-                'activation_id' => $activation->id,
-                'device_identifier' => $deviceIdentifier,
-                'deactivated_by' => $currentUser,
-                'timestamp' => $timestamp->toIso8601String()
+        } catch (\Exception $e) {
+            Log::error('Failed to get license content', [
+                'licenseId' => $license->id,
+                'error' => $e->getMessage()
             ]);
-
-            return [
-                'success' => true,
-                'deactivated_at' => $timestamp->toIso8601String(),
-                'deactivated_by' => $currentUser,
-                'remaining_seats' => $license->getRemainingSeats()
-            ];
-        });
+            throw new \RuntimeException('Failed to get license content: ' . $e->getMessage());
+        }
     }
 
-    public function validateLicense(string $licenseKey, array $validationData): array
+    public function validateLicense(string $licenseKey, array $validationData = []): array
     {
-        $timestamp = Carbon::now();
-        $currentUser = Auth::check() ? Auth::user()->id : 'system';;
-
         $license = $this->repository->findByKey($licenseKey);
 
         if (!$license) {
             throw new LicenseValidationException('License not found');
         }
 
-        if (!$this->validateLicenseSignature($license)) {
+        if (!$this->repository->validateSignature($license)) {
             throw new LicenseValidationException('Invalid license signature');
         }
 
-        // Verify device activation
-        $activation = $license->activations()
-            ->where('device_identifier', $validationData['device_identifier'])
-            ->where('is_active', true)
-            ->first();
+        $this->validateLicenseStatus($license);
+        $this->validateLicenseExpiry($license);
+        $this->validateLicenseRestrictions($license, $validationData);
 
-        if (!$activation) {
-            throw new LicenseValidationException('Device not activated for this license');
-        }
-
-        // Check domain
-        if (isset($license->restrictions['domain'])) {
-            if (!$this->isValidDomain($validationData['domain'], $license->restrictions['domain'])) {
-                throw new LicenseValidationException('Invalid domain');
-            }
-        }
-
-        // Update check-in time
-        $activation->update([
-            'last_check_in' => $timestamp,
-            'next_check_in' => $timestamp->copy()->addDays(
-                $license->settings['check_in_interval'] ?? 7
-            )
+        $this->repository->logLicenseEvent($license, 'validated', [
+            'validation_data' => $validationData,
+            'result' => 'success'
         ]);
 
         return [
             'valid' => true,
+            'type' => $license->type,
+            'source' => $license->source,
             'features' => $license->features,
-            'expires_at' => $license->valid_until,
-            'next_check_in' => $activation->next_check_in,
-            'validated_at' => $timestamp->toIso8601String(),
-            'validated_by' => $currentUser
+            'expires_at' => $license->valid_until?->toIso8601String(),
+            'validated_at' => self::TIMESTAMP
         ];
     }
 
-    private function generateLicenseKey(): string
+    public function activateLicense(string $licenseKey, array $activationData): array
     {
-        do {
-            $key = sprintf(
-                'LICENSE-%s-%s-%s',
-                date('Y'),
-                strtoupper(Str::random(4)),
-                strtoupper(Str::random(4))
-            );
-        } while ($this->repository->findByKey($key));
+        return DB::transaction(function () use ($licenseKey, $activationData) {
+            $license = $this->repository->findByKey($licenseKey);
 
-        return $key;
+            if (!$license) {
+                throw new LicenseValidationException('License not found');
+            }
+
+            if (!$this->repository->validateSignature($license)) {
+                throw new LicenseValidationException('Invalid license signature');
+            }
+
+            $this->validateLicenseStatus($license);
+            $this->validateLicenseExpiry($license);
+
+            // Update activation data
+            $metadata = $license->metadata ?? [];
+            $metadata['activations'] = array_merge($metadata['activations'] ?? [], [
+                [
+                    'id' => Str::uuid(),
+                    'timestamp' => self::TIMESTAMP,
+                    'data' => $activationData,
+                    'created_by' => self::USER
+                ]
+            ]);
+
+            $this->repository->update($license, ['metadata' => $metadata]);
+
+            $this->repository->logLicenseEvent($license, 'activated', [
+                'activation_data' => $activationData
+            ]);
+
+            return [
+                'status' => 'activated',
+                'activation_id' => end($metadata['activations'])['id'],
+                'timestamp' => self::TIMESTAMP
+            ];
+        });
     }
 
-    private function createHardwareHash(array $hardware): string
+    public function deactivateLicense(string $licenseKey, string $activationId): array
     {
-        return hash('sha256', json_encode([
-            'cpu' => $hardware['cpu_id'],
-            'disk' => $hardware['disk_id'],
-            'mac' => $hardware['mac_address']
-        ]));
+        return DB::transaction(function () use ($licenseKey, $activationId) {
+            $license = $this->repository->findByKey($licenseKey);
+
+            if (!$license) {
+                throw new LicenseValidationException('License not found');
+            }
+
+            $metadata = $license->metadata ?? [];
+            $activations = $metadata['activations'] ?? [];
+
+            $found = false;
+            foreach ($activations as $key => $activation) {
+                if ($activation['id'] === $activationId) {
+                    unset($activations[$key]);
+                    $found = true;
+                    break;
+                }
+            }
+
+            if (!$found) {
+                throw new LicenseValidationException('Activation not found');
+            }
+
+            $metadata['activations'] = array_values($activations);
+            $this->repository->update($license, ['metadata' => $metadata]);
+
+            $this->repository->logLicenseEvent($license, 'deactivated', [
+                'activation_id' => $activationId
+            ]);
+
+            return [
+                'status' => 'deactivated',
+                'timestamp' => self::TIMESTAMP
+            ];
+        });
     }
 
-    private function isValidDomain(string $requestDomain, string $allowedDomain): bool
+    private function validateSourceData(array &$data): void
     {
-        // Remove protocol and www if present
-        $requestDomain = preg_replace('#^https?://(www\\.)?#', '', strtolower($requestDomain));
-        $allowedDomain = preg_replace('#^https?://(www\\.)?#', '', strtolower($allowedDomain));
+        if ($data['source'] === 'envato' && empty($data['source_purchase_code'])) {
+            throw new LicenseValidationException('Envato purchase code is required');
+        }
 
-        // Check if domains match or if request domain is subdomain of allowed domain
-        return $requestDomain === $allowedDomain || 
-               preg_match('/' . preg_quote($allowedDomain) . '$/', $requestDomain);
+        if ($data['type'] === 'onetime') {
+            $data['valid_until'] = Carbon::parse(self::TIMESTAMP)->addYears(100);
+        }
+    }
+
+    private function validateLicenseStatus(License $license): void
+    {
+        if ($license->status !== 'active') {
+            throw new LicenseValidationException("License is {$license->status}");
+        }
+    }
+
+    private function validateLicenseExpiry(License $license): void
+    {
+        if ($license->valid_until && $license->valid_until < Carbon::parse(self::TIMESTAMP)) {
+            throw new LicenseValidationException('License has expired');
+        }
+    }
+
+    private function validateLicenseRestrictions(License $license, array $validationData): void
+    {
+        $restrictions = $license->restrictions ?? [];
+
+        if (isset($restrictions['domain']) && 
+            isset($validationData['domain']) && 
+            $restrictions['domain'] !== $validationData['domain']) {
+            throw new LicenseValidationException('Invalid domain');
+        }
+
+        if (isset($restrictions['environment']) && 
+            isset($validationData['environment']) && 
+            $restrictions['environment'] !== $validationData['environment']) {
+            throw new LicenseValidationException('Invalid environment');
+        }
+    }
+
+    private function prepareSignatureData(License $license, Carbon $timestamp): array
+    {
+        $data = [
+            'key' => $license->key,
+            'source' => $license->source,
+            'type' => $license->type,
+            'product_id' => $license->product_id,
+            'features' => $license->features,
+            'valid_from' => $license->valid_from->toIso8601String(),
+            'valid_until' => $license->valid_until?->toIso8601String(),
+            'created_at' => $timestamp->toIso8601String(),
+            'created_by' => self::USER
+        ];
+
+        if ($license->source === 'envato') {
+            $data['purchase_code'] = $license->source_purchase_code;
+            $data['source_data'] = $license->source_data;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Find a license by Envato purchase code
+     *
+     * @param string $purchaseCode
+     * @return License
+     * @throws LicenseValidationException
+     */
+    public function findByPurchaseCode(string $purchaseCode): License
+    {
+        $license = $this->repository->findByPurchaseCode($purchaseCode);
+
+        if (!$license) {
+            throw new LicenseValidationException("No license found for purchase code: {$purchaseCode}");
+        }
+
+        return $license;
+    }
+
+    public function generateLicenseKey(array $data): string 
+    {
+        // Create base identifier
+        $baseId = hex2bin(str_replace('-', '', Str::uuid()));
+        
+        // Compress the data
+        $compressed = gzcompress(json_encode($data), 9);
+        
+        // Combine and encode
+        $combined = $baseId . $compressed;
+        
+        // Return URL-safe base64 encoding
+        return rtrim(strtr(base64_encode($combined), '+/', '-_'), '=');
+    }
+
+    public function decodeLicenseKey(string $key): array
+    {
+        try {
+            // Decode base64
+            $decoded = base64_decode(strtr($key, '-_', '+/'));
+            
+            // Extract UUID and compressed data
+            $uuid = bin2hex(substr($decoded, 0, 16));
+            $compressed = substr($decoded, 16);
+            
+            // Decompress data
+            $data = gzuncompress($compressed);
+            
+            return json_decode($data, true);
+        } catch (\Exception $e) {
+            throw new RuntimeException('Invalid license key');
+        }
+    }
+
+    private function validateDomain(string $domain, License $license): bool
+    {
+        return $license->domains()
+            ->where('is_active', true)
+            ->get()
+            ->contains(function ($licenseDomain) use ($domain) {
+                return $licenseDomain->isValidDomain($domain);
+            });
     }
 }

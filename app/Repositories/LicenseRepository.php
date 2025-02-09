@@ -2,183 +2,112 @@
 
 namespace App\Repositories;
 
-use App\Events\LicenseActivated;
-use App\Events\LicenseDeactivated;
-use App\Exceptions\LicenseActivationException;
 use App\Models\License;
-use App\Models\LicenseLog;
-use App\Interfaces\LicenseRepositoryInterface;
-use App\Interfaces\CurrentUserResolverInterface;
-use Illuminate\Support\Facades\DB;
+use App\Services\EncryptionService;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Database\Eloquent\Collection;
 use Carbon\Carbon;
 
-class LicenseRepository implements LicenseRepositoryInterface
+class LicenseRepository
 {
-    public function __construct(
-        private License $model,
-        private CurrentUserResolverInterface $userResolver
-    ) {}
-
-    public function findByKey(string $key): ?License
-    {
-        return $this->model->where('key', $key)->first();
-    }
+    private const CACHE_TTL = 3600;
+    private const CACHE_PREFIX = 'license:';
+    private const TIMESTAMP = '2025-02-09 07:40:27';
+    private const USER = 'maab16';
 
     public function create(array $data): License
     {
-        return DB::transaction(function () use ($data) {
-            $license = $this->model->create($data);
-            $this->logLicenseEvent($license, 'created', $data);
-            return $license;
+        // Remove id if it's being passed
+        unset($data['id']);
+        
+        $license = License::create($data);
+        $this->cacheKey($license->key, $license);
+        return $license;
+    }
+
+    public function findByKey(string $key): ?License
+    {
+        $cacheKey = self::CACHE_PREFIX . $key;
+
+        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($key) {
+            return License::where('key', $key)->first();
         });
     }
 
-    public function activate(License $license, array $activationData): bool
+    public function update(License $license, array $data): License
     {
-        return DB::transaction(function () use ($license, $activationData) {
-            try {
-                $existingActivation = $license->activations()
-                    ->where('device_identifier', $activationData['device_identifier'])
-                    ->first();
+        $license->update(array_merge($data, [
+            'updated_by' => self::USER,
+            'updated_at' => self::TIMESTAMP
+        ]));
 
-                if ($existingActivation && $existingActivation->is_active) {
-                    throw new LicenseActivationException('Device is already activated');
-                }
-
-                $activation = $license->activations()->create([
-                    'device_identifier' => $activationData['device_identifier'],
-                    'device_name' => $activationData['device_name'],
-                    'hardware_hash' => $activationData['hardware_hash'],
-                    'ip_address' => $activationData['ip_address'] ?? $this->userResolver->getIp(),
-                    'domain' => $activationData['domain'] ?? null,
-                    'last_check_in' => now(),
-                    'metadata' => $activationData['metadata'] ?? null,
-                    'is_active' => true
-                ]);
-
-                $this->logLicenseEvent($license, 'activated', [
-                    'activation_id' => $activation->id,
-                    'device_identifier' => $activation->device_identifier,
-                    'hardware_hash' => $activation->hardware_hash,
-                    'ip_address' => $activation->ip_address,
-                ]);
-
-                event(new LicenseActivated($license, $activation));
-
-                return true;
-
-            } catch (\Exception $e) {
-                throw new LicenseActivationException(
-                    $e->getMessage(),
-                    previous: $e
-                );
-            }
-        });
+        $this->cacheKey($license->key, $license->fresh());
+        return $license;
     }
 
-    public function deactivate(License $license, string $deviceIdentifier): bool
+    public function logLicenseEvent(License $license, string $event, array $data): void
     {
-        return DB::transaction(function () use ($license, $deviceIdentifier) {
-            try {
-                $activation = $license->activations()
-                    ->where('device_identifier', $deviceIdentifier)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (!$activation) {
-                    throw new LicenseActivationException('No active device found with this identifier');
-                }
-
-                $activation->update([
-                    'is_active' => false,
-                    'deactivated_at' => now(),
-                    'deactivation_reason' => 'user_requested'
-                ]);
-
-                $this->logLicenseEvent($license, 'deactivated', [
-                    'activation_id' => $activation->id,
-                    'device_identifier' => $deviceIdentifier,
-                    'hardware_hash' => $activation->hardware_hash,
-                ]);
-
-                event(new LicenseDeactivated($license, $activation));
-
-                return true;
-
-            } catch (\Exception $e) {
-                throw new LicenseActivationException(
-                    $e->getMessage(),
-                    previous: $e
-                );
-            }
-        });
+        $license->logs()->create([
+            'event' => $event,
+            'data' => array_merge($data, [
+                'timestamp' => self::TIMESTAMP,
+                'user' => self::USER
+            ]),
+            'created_by' => self::USER
+        ]);
     }
 
-    public function logLicenseEvent(License $license, string $event, array $data = []): void
+    private function cacheKey(string $key, License $license): void
     {
-        DB::transaction(function () use ($license, $event, $data) {
-            LicenseLog::create([
-                'license_id' => $license->id,
-                'event_type' => $event,
-                'event_data' => array_merge($data, [
-                    'timestamp' => now()->toIso8601String(),
-                    'ip_address' => $this->userResolver->getIp(),
-                    'user_agent' => $this->userResolver->getUserAgent() ?? 'unknown',
-                    'performed_by' => $this->userResolver->getId() ?? 'system'
-                ]),
-                'ip_address' => $this->userResolver->getIp(),
-                'user_agent' => $this->userResolver->getUserAgent() ?? 'unknown',
-            ]);
-
-            $license->update([
-                'last_activity_at' => now(),
-                'last_activity_type' => $event
-            ]);
-
-            $this->cacheLatestEvents($license);
-        });
+        Cache::put(
+            self::CACHE_PREFIX . $key, 
+            $license, 
+            Carbon::parse(self::TIMESTAMP)->addSeconds(self::CACHE_TTL)
+        );
     }
 
-    public function getEventsByType(License $license, string $eventType, ?Carbon $since = null): Collection
+    public function invalidateCache(string $key): void
     {
-        $query = $license->logs()->where('event_type', $eventType);
+        Cache::forget(self::CACHE_PREFIX . $key);
+    }
 
-        if ($since) {
-            $query->where('created_at', '>=', $since);
+    public function validateSignature(License $license): bool
+    {
+        if (!isset($license->metadata['_security']['encrypted_data'])) {
+            return false;
         }
 
-        return $query->orderBy('created_at', 'desc')->get();
+        return app(EncryptionService::class)->verify(
+            $license->metadata['_security']['encrypted_data'],
+            $license->signature,
+            $license->auth_key_id
+        );
     }
 
-    public function getLatestEvents(License $license, int $limit = 10): Collection
+    /**
+     * Find a license by Envato purchase code
+     *
+     * @param string $purchaseCode
+     * @return License|null
+     */
+    public function findByPurchaseCode(string $purchaseCode): ?License
     {
-        $cacheKey = "license_events:{$license->id}";
+        $cacheKey = self::CACHE_PREFIX . 'envato:' . $purchaseCode;
 
-        if (cache()->has($cacheKey)) {
-            return collect(cache()->get($cacheKey));
-        }
-
-        $events = $license->logs()
-            ->orderBy('created_at', 'desc')
-            ->take($limit)
-            ->get();
-
-        cache()->put($cacheKey, $events->toArray(), now()->addHours(24));
-
-        return $events;
+        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($purchaseCode) {
+            return License::where('source', 'envato')
+                         ->where('source_purchase_code', $purchaseCode)
+                         ->first();
+        });
     }
 
-    protected function cacheLatestEvents(License $license): void
+    /**
+     * Invalidate purchase code cache
+     *
+     * @param string $purchaseCode
+     * @return void
+     */
+    public function invalidatePurchaseCodeCache(string $purchaseCode): void
     {
-        $cacheKey = "license_events:{$license->id}";
-        $latestEvents = $license->logs()
-            ->orderBy('created_at', 'desc')
-            ->take(10)
-            ->get()
-            ->toArray();
-
-        Cache::put($cacheKey, $latestEvents, now()->addHours(24));
+        Cache::forget(self::CACHE_PREFIX . 'envato:' . $purchaseCode);
     }
 }

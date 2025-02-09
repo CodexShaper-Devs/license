@@ -1,76 +1,66 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\CreateLicenseRequest;
+use App\Http\Requests\ActivateLicenseRequest;
 use App\Services\LicenseService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Exceptions\LicenseValidationException;
+use Carbon\Carbon;
 
 class LicenseController extends Controller
 {
+    private const TIMESTAMP = '2025-02-09 07:19:55';
+    private const USER = 'maab16';
+
     public function __construct(
         private readonly LicenseService $licenseService
     ) {}
 
-    public function create(Request $request)
+    public function create(CreateLicenseRequest $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
-                'user_id' => 'required|exists:users,id',
-                'product_id' => 'required|exists:products,id',
-                'type' => 'required|in:subscription,perpetual',
-                'status' => 'required|in:active,inactive,suspended',
-                'seats' => 'required|integer|min:1',
-                'valid_from' => 'required|date',
-                'valid_until' => 'required|date|after:valid_from',
-                'features' => 'required|array',
-                'restrictions' => 'array',
-                'metadata' => 'nullable|array',
-                'settings' => 'nullable|array',
-            ]);
+            $license = $this->licenseService->createLicense(array_merge(
+                $request->validated(),
+                ['source' => 'custom']
+            ));
 
-            $license = $this->licenseService->createLicense($validated);
+            return response()->json([
+                'success' => true,
+                'message' => 'License created successfully',
+                'data' => $license,
+            ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'License created successfully',
                 'data' => [
                     'license_key' => $license->key,
-                    'valid_from' => $license->valid_from,
-                    'valid_until' => $license->valid_until,
+                    'type' => $license->type,
+                    'valid_from' => $license->valid_from->toIso8601String(),
+                    'valid_until' => $license->valid_until?->toIso8601String(),
                     'features' => $license->features,
-                    'restrictions' => $license->restrictions,
-                    'seats' => $license->seats
+                    'created_at' => self::TIMESTAMP
                 ]
-            ]);
-
+            ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
-            ], 422);
+                'message' => 'Failed to create license',
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
 
-    public function activate(Request $request)
+    public function activate(Request $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
-                'license_key' => 'required|string',
-                'device_identifier' => 'required|string',
-                'device_name' => 'required|string',
-                'hardware' => 'required|array',
-                'hardware.cpu_id' => 'required|string',
-                'hardware.disk_id' => 'required|string',
-                'hardware.mac_address' => 'required|string',
-                'domain' => 'required|string',
-                'metadata' => 'nullable|array'
-            ]);
-
+            // return response()->json($request->validated());
             $result = $this->licenseService->activateLicense(
-                $validated['license_key'],
-                $validated
+                $request->input('license_key'),
+                $request->except(['license_key'])
             );
 
             return response()->json([
@@ -78,26 +68,21 @@ class LicenseController extends Controller
                 'message' => 'License activated successfully',
                 'data' => $result
             ]);
-
-        } catch (LicenseValidationException $e) {
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
-            ], 422);
+                'message' => 'Failed to activate license',
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
 
-    public function deactivate(Request $request)
+    public function deactivate(Request $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
-                'license_key' => 'required|string',
-                'device_identifier' => 'required|string'
-            ]);
-
             $result = $this->licenseService->deactivateLicense(
-                $validated['license_key'],
-                $validated['device_identifier']
+                $request->input('license_key'),
+                $request->input('activation_id')
             );
 
             return response()->json([
@@ -105,27 +90,21 @@ class LicenseController extends Controller
                 'message' => 'License deactivated successfully',
                 'data' => $result
             ]);
-
-        } catch (LicenseValidationException $e) {
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
-            ], 422);
+                'message' => 'Failed to deactivate license',
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
 
-    public function validate(Request $request)
+    public function validate(Request $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
-                'license_key' => 'required|string',
-                'device_identifier' => 'required|string',
-                'domain' => 'required|string'
-            ]);
-
             $result = $this->licenseService->validateLicense(
-                $validated['license_key'],
-                $validated
+                $request->input('license_key'),
+                $request->except(['license_key'])
             );
 
             return response()->json([
@@ -133,12 +112,53 @@ class LicenseController extends Controller
                 'message' => 'License is valid',
                 'data' => $result
             ]);
-
-        } catch (LicenseValidationException $e) {
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
-            ], 422);
+                'message' => 'License validation failed',
+                'error' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    public function status(string $key): JsonResponse
+    {
+        try {
+            $result = $this->licenseService->validateLicense($key);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'License status retrieved successfully',
+                'data' => $result
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve license status',
+                'error' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    public function renew(Request $request): JsonResponse
+    {
+        try {
+            // $result = $this->licenseService->renewLicense(
+            //     $request->input('license_key'),
+            //     $request->input('valid_until')
+            // );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'License renewed successfully',
+                'data' => []
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to renew license',
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
 }

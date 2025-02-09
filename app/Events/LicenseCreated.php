@@ -3,13 +3,12 @@
 namespace App\Events;
 
 use App\Models\License;
-use App\Models\LicenseActivation;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 
-class LicenseActivated implements ShouldBroadcast
+class LicenseCreated implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -18,7 +17,6 @@ class LicenseActivated implements ShouldBroadcast
 
     public function __construct(
         public readonly License $license,
-        public readonly LicenseActivation $activation,
         public readonly array $metadata = []
     ) {}
 
@@ -29,7 +27,7 @@ class LicenseActivated implements ShouldBroadcast
 
     public function broadcastAs(): string
     {
-        return 'license.activated';
+        return 'license.created';
     }
 
     public function broadcastWith(): array
@@ -37,17 +35,16 @@ class LicenseActivated implements ShouldBroadcast
         return [
             'license' => [
                 'key' => $this->license->key,
-                'status' => $this->license->status
-            ],
-            'activation' => [
-                'device_identifier' => $this->activation->device_identifier,
-                'device_name' => $this->activation->device_name,
-                'domain' => $this->activation->domain,
-                'activated_at' => $this->activation->activated_at->toIso8601String()
+                'source' => $this->license->source,
+                'type' => $this->license->type,
+                'status' => $this->license->status,
+                'seats' => $this->license->seats,
+                'features' => $this->license->features,
+                'valid_until' => $this->license->valid_until?->toIso8601String()
             ],
             'metadata' => array_merge($this->metadata, [
-                'timestamp' => self::TIMESTAMP,
-                'user' => self::USER,
+                'created_at' => self::TIMESTAMP,
+                'created_by' => self::USER,
                 'environment' => config('app.env')
             ])
         ];

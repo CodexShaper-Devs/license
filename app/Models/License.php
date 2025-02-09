@@ -5,40 +5,62 @@ namespace App\Models;
 use App\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class License extends Model
 {
-    use HasUuid;
+    use HasUuids, SoftDeletes;
+
+    const SOURCE_CUSTOM = 'custom';      // Your own marketplace
+    const SOURCE_ENVATO = 'envato';      // Envato marketplace
+    const SOURCE_OTHER = 'other';        // Other marketplaces
+    
+    const TYPE_SUBSCRIPTION = 'subscription';
+    const TYPE_ONETIME = 'onetime';
 
     protected $fillable = [
+        'uuid',
         'key',
-        'user_id',
-        'product_id',
         'type',
-        'status',
+        'product_id',
+        'user_id',
         'seats',
+        'features',
         'valid_from',
         'valid_until',
-        'features',
         'restrictions',
         'metadata',
-        'settings',
-        'signature',
+        'source',
+        'source_purchase_code',
         'encryption_key_id',
         'auth_key_id',
-        'created_by'
+        'status',
+        'signature',
+        'created_by',
+        'updated_by'
     ];
 
     protected $casts = [
         'features' => 'array',
         'restrictions' => 'array',
         'metadata' => 'array',
-        'settings' => 'array',
         'valid_from' => 'datetime',
         'valid_until' => 'datetime'
     ];
 
-    public function user()
+    /**
+     * Get the columns that should receive a unique identifier.
+     *
+     * @return array
+     */
+    public function uniqueIds(): array
+    {
+        return ['id', 'uuid'];
+    }
+
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
@@ -51,6 +73,11 @@ class License extends Model
     public function activations()
     {
         return $this->hasMany(LicenseActivation::class);
+    }
+
+    public function events()
+    {
+        return $this->hasMany(LicenseEvent::class);
     }
 
     public function logs()

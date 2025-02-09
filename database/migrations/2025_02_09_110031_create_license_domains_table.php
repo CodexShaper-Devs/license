@@ -11,23 +11,20 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('license_activations', function (Blueprint $table) {
+        Schema::create('license_domains', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('license_id')->constrained('licenses');
             
-            // Domain and Hardware Info
-            $table->string('domain');
-            $table->string('hardware_id');
-            $table->string('instance_identifier');
-            $table->ipAddress('ip_address');
+            // Domain Information
+            $table->string('domain')->unique();
+            $table->boolean('is_primary')->default(false);
+            $table->boolean('allow_subdomains')->default(false);
+            $table->integer('max_subdomains')->default(0);
+            $table->json('allowed_subdomains')->nullable();
             
-            // Version and Status
-            $table->string('product_version');
+            // Status
             $table->boolean('is_active')->default(true);
-            $table->timestamp('last_check_in');
-            
-            // Additional Data
-            $table->json('metadata');
+            $table->timestamp('validated_at')->nullable();
             
             // Audit
             $table->string('created_by');
@@ -35,16 +32,10 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            // Unique Constraints
-            $table->unique(['license_id', 'domain']);
-            $table->unique(['license_id', 'hardware_id']);
-            $table->unique('instance_identifier');
-            
             // Indexes
+            $table->index('domain');
             $table->index('is_active');
-            $table->index('last_check_in');
-
-            
+            $table->index(['license_id', 'is_primary']);
         });
     }
 
@@ -53,6 +44,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('license_activations');
+        Schema::dropIfExists('license_domains');
     }
 };

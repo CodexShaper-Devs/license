@@ -3,14 +3,20 @@
     "name": "laravel/laravel",
     "type": "project",
     "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "keywords": [
+        "laravel",
+        "framework"
+    ],
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "ext-sodium": "*",
         "laravel/framework": "^11.31",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.9",
-        "paragonie/halite": "5",
+        "nesbot/carbon": "^3.8",
+        "paragonie/halite": "^5.1",
+        "paragonie/hidden-string": "^2.2",
         "spatie/data-transfer-object": "^3.9"
     },
     "require-dev": {
