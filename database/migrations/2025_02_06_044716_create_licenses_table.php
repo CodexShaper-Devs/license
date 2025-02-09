@@ -79,6 +79,7 @@ return new class extends Migration
             // Indexes for Performance
             $table->index(['source', 'source_purchase_code', 'type', 'status']); // Optimize source-based queries
         });
+        
     }
 
     /**
