@@ -12,72 +12,94 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('licenses', function (Blueprint $table) {
-            // Primary Identification Columns
-            $table->uuid('id')->primary();          // Primary key for the license
-            $table->uuid('uuid');                   // Public UUID for external API references
-
-            // License Content & Security
-            $table->string('key')->unique();          // Encrypted license data (large text to accommodate encryption)
-            $table->string('signature')->nullable(); // Digital signature for license verification
-
-            // License Type & Configuration
-            $table->enum('type', [                  // Type of license
-                'subscription',                      // Recurring payment with expiry
-                'onetime'                           // One-time payment
-            ]);
-
-            // Relationships
-            $table->uuid('product_id');             // Related product identifier
-            $table->unsignedBigInteger('user_id');  // License owner/purchaser
-
-            // Usage Limits
-            $table->integer('seats')->default(1);    // Number of allowed concurrent users/installations
-
-            // Features & Customization
-            $table->json('features')->nullable();    // Additional features enabled for this license
-                                                    // Example: ["feature1", "feature2"]
-
-            // Validity Period
-            $table->timestamp('valid_from');         // License activation date
-            $table->timestamp('valid_until')         // License expiration date
-                  ->nullable();                      // Null means perpetual license
-
-            // Restrictions & Metadata
-            $table->json('restrictions'); // License usage restrictions
-                                                     // Example: {"domain": "example.com"}
-            $table->json('metadata')->nullable();     // Additional custom data
-                                                     // Example: {"customer_name": "John Doe"}
-
-            // Source Information
-            $table->string('source')                 // Where the license was purchased
-                  ->default('custom');               // Default is custom/direct purchase
-            $table->string('source_purchase_code')   // External purchase reference
-                  ->nullable();                      // Optional purchase code from marketplace
-
-            // Encryption & Authentication
-            $table->string('encryption_key_id');     // ID of the key used for encryption
-            $table->string('auth_key_id');          // ID of the key used for authentication
-
-            // Status
-            $table->string('status')                // Current license status
-                  ->default('active');              // Default is active
-
-            // Audit Trail
-            $table->string('created_by');           // User who created the license
-            $table->string('updated_by')            // User who last modified the license
-                  ->nullable();
+            $table->uuid('id')->primary();
+            $table->uuid('uuid')->unique();
             
-            // Add indexes for common queries
-            $table->index('status');
-            $table->index('type');
-            $table->index(['encryption_key_id', 'auth_key_id']);
-
-            // Timestamps
-            $table->timestamps();                   // created_at and updated_at columns
-            $table->softDeletes();                  // deleted_at column for soft deletes
-
-            // Indexes for Performance
-            $table->index(['source', 'source_purchase_code', 'type', 'status']); // Optimize source-based queries
+            // License Key & Security
+            $table->text('key');
+            $table->text('signature');
+            $table->string('encryption_key_id');
+            $table->string('auth_key_id');
+            $table->json('security_metadata')->nullable();
+            
+            // Relationships
+            $table->uuid('product_id');
+            $table->uuid('plan_id')->nullable();
+            $table->foreignId('user_id')->constrained();
+            
+            // License Type & Configuration
+            $table->enum('type', [
+                'subscription',      // Renewable subscription
+                'lifetime',         // One-time perpetual
+                'trial'            // Trial license
+            ]);
+            
+            // Seat Management
+            $table->integer('purchased_seats')->default(1);
+            $table->integer('activated_seats')->default(0);
+            $table->json('seat_allocation')->nullable();
+            
+            // Source Information
+            $table->string('source')->default('custom');
+            $table->string('source_purchase_code')->nullable();
+            $table->json('source_metadata')->nullable();
+            
+            // Features & Restrictions
+            $table->json('features')->nullable();
+            $table->json('restrictions')->nullable();
+            
+            // Validity Period
+            $table->timestamp('valid_from');
+            $table->timestamp('valid_until')->nullable();
+            $table->timestamp('trial_ends_at')->nullable();
+            $table->timestamp('grace_period_ends_at')->nullable();
+            
+            // Check-in Configuration
+            $table->timestamp('last_check_in')->nullable();
+            $table->timestamp('next_check_in')->nullable();
+            $table->integer('failed_checks')->default(0);
+            $table->integer('max_failed_checks')->default(3);
+            
+            // Hardware Verification
+            $table->boolean('hardware_verification_enabled')->default(false);
+            $table->integer('hardware_changes_count')->default(0);
+            $table->json('hardware_history')->nullable();
+            
+            // Status Management
+            $table->enum('status', [
+                'pending',          // Awaiting activation
+                'active',           // License is active
+                'suspended',        // Temporarily suspended
+                'expired',          // License has expired
+                'cancelled',        // Cancelled by user/admin
+                'trial',            // In trial period
+                'grace_period'      // In grace period
+            ])->default('pending');
+            
+            // Renewal Configuration
+            $table->boolean('auto_renew')->default(false);
+            $table->timestamp('renewal_reminder_sent_at')->nullable();
+            
+            // Additional Data
+            $table->json('metadata')->nullable();
+            
+            // Audit Trail
+            $table->string('created_by');
+            $table->string('updated_by')->nullable();
+            $table->string('suspended_by')->nullable();
+            $table->text('suspension_reason')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+            
+            // Indexes
+            $table->index(['source', 'source_purchase_code']);
+            $table->index(['status', 'type']);
+            $table->index('valid_until');
+            $table->index('next_check_in');
+            
+            // Foreign Keys
+            $table->foreign('product_id')->references('id')->on('products');
+            $table->foreign('plan_id')->references('id')->on('license_plans');
         });
         
     }

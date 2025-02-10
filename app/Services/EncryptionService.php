@@ -4,73 +4,153 @@ namespace App\Services;
 
 use ParagonIE\HiddenString\HiddenString;
 use ParagonIE\Halite\Symmetric\Crypto;
+use ParagonIE\Halite\Symmetric\EncryptionKey;
+use ParagonIE\Halite\Symmetric\AuthenticationKey;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
+use RuntimeException;
 
 class EncryptionService
 {
+    private const CURRENT_TIME = '2025-02-10 06:09:04';
+    private const CURRENT_USER = 'maab16';
+
     public function __construct(
         private readonly KeyManagementService $keyManagement
     ) {}
 
-    public function encrypt(HiddenString $data, string $keyId): string
+    public function encrypt(array $data, string $keyId): HiddenString
     {
         try {
-            $key = $this->keyManagement->getEncryptionKey($keyId);
-            Log::debug('Encrypting data', ['keyId' => $keyId]);
-            return Crypto::encrypt($data, $key);
+            // Get raw key material and convert to EncryptionKey
+            $rawKey = $this->keyManagement->getEncryptionKey($keyId);
+            $encryptionKey = new EncryptionKey(
+                new HiddenString($rawKey)
+            );
+
+            $jsonData = json_encode($data, JSON_THROW_ON_ERROR);
+            
+            if ($jsonData === false) {
+                throw new RuntimeException('Failed to encode data for encryption');
+            }
+
+            Log::debug('Encrypting data', [
+                'keyId' => $keyId,
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            $encrypted = Crypto::encrypt(
+                new HiddenString($jsonData),
+                $encryptionKey
+            );
+
+            return new HiddenString($encrypted);
+
         } catch (\Exception $e) {
             Log::error('Encryption failed', [
                 'keyId' => $keyId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
             ]);
-            throw new \RuntimeException('Encryption failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
     public function decrypt(string $encrypted, string $keyId): HiddenString
     {
         try {
-            $key = $this->keyManagement->getEncryptionKey($keyId);
-            Log::debug('Decrypting data', ['keyId' => $keyId]);
-            return Crypto::decrypt($encrypted, $key);
+            // Get raw key material and convert to EncryptionKey
+            $rawKey = $this->keyManagement->getEncryptionKey($keyId);
+            $encryptionKey = new EncryptionKey(
+                new HiddenString($rawKey)
+            );
+
+            Log::debug('Decrypting data', [
+                'keyId' => $keyId,
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            return Crypto::decrypt(
+                $encrypted,
+                $encryptionKey
+            );
+
         } catch (\Exception $e) {
             Log::error('Decryption failed', [
                 'keyId' => $keyId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
             ]);
-            throw new \RuntimeException('Decryption failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
-    public function sign(HiddenString $data, string $keyId): string
+    public function sign(HiddenString $data, string $keyId): HiddenString
     {
         try {
-            $key = $this->keyManagement->getAuthKey($keyId);
-            Log::debug('Signing data', ['keyId' => $keyId]);
-            return Crypto::authenticate($data->getString(), $key);
+            // Get raw key material and convert to AuthenticationKey
+            $rawKey = $this->keyManagement->getAuthKey($keyId);
+            $authKey = new AuthenticationKey(
+                new HiddenString($rawKey)
+            );
+
+            Log::debug('Signing data', [
+                'keyId' => $keyId,
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            $signature = Crypto::authenticate(
+                $data->getString(),
+                $authKey
+            );
+
+            return new HiddenString($signature);
+
         } catch (\Exception $e) {
             Log::error('Signing failed', [
                 'keyId' => $keyId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
             ]);
-            throw new \RuntimeException('Signing failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
-    public function verify(HiddenString $data, string $signature, string $keyId): bool
+    public function verify(HiddenString $data, HiddenString $signature, string $keyId): bool
     {
         try {
-            $key = $this->keyManagement->getAuthKey($keyId);
-            Log::debug('Verifying signature', ['keyId' => $keyId]);
-            return Crypto::verify($data->getString(), $key, $signature);
-        } catch (\Exception $e) {
-            Log::error('Verification failed', [
+            // Get raw key material and convert to AuthenticationKey
+            $rawKey = $this->keyManagement->getAuthKey($keyId);
+            $authKey = new AuthenticationKey(
+                new HiddenString($rawKey)
+            );
+
+            Log::debug('Verifying signature', [
                 'keyId' => $keyId,
-                'error' => $e->getMessage()
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
             ]);
-            throw new \RuntimeException('Verification failed: ' . $e->getMessage());
+
+            return Crypto::verify(
+                $data->getString(),
+                $authKey,
+                $signature->getString()
+            );
+
+        } catch (\Exception $e) {
+            Log::error('Signature verification failed', [
+                'keyId' => $keyId,
+                'error' => $e->getMessage(),
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+            return false;
         }
     }
 }

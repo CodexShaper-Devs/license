@@ -4,7 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
-use App\Exceptions\EnvatoValidationException;
+use Exception;
 use Carbon\Carbon;
 
 class EnvatoService
@@ -15,10 +15,10 @@ class EnvatoService
     private const USER = 'maab16';
 
     public function __construct(
-        private readonly string $apiToken,
-        private readonly Http $http
+        private string $apiToken,
+        private Http $http
     ) {
-        $this->apiToken = config('services.envato.api_token');
+        $this->apiToken = $apiToken;
     }
 
     public function verifyPurchase(string $purchaseCode): array
@@ -43,7 +43,7 @@ class EnvatoService
             ]);
 
             if (!$response->successful()) {
-                throw new EnvatoValidationException(
+                throw new Exception(
                     'Failed to verify purchase code: ' . $response->json('message', 'Unknown error')
                 );
             }
@@ -52,7 +52,7 @@ class EnvatoService
             return $this->formatPurchaseData($data, $purchaseCode);
 
         } catch (\Exception $e) {
-            throw new EnvatoValidationException(
+            throw new Exception(
                 'Purchase code verification failed: ' . $e->getMessage()
             );
         }
@@ -101,7 +101,7 @@ class EnvatoService
             ]);
 
             if (!$response->successful()) {
-                throw new EnvatoValidationException(
+                throw new Exception(
                     'Failed to fetch item details: ' . $response->json('message', 'Unknown error')
                 );
             }
@@ -112,7 +112,7 @@ class EnvatoService
             ]);
 
         } catch (\Exception $e) {
-            throw new EnvatoValidationException(
+            throw new Exception(
                 'Failed to fetch item details: ' . $e->getMessage()
             );
         }
