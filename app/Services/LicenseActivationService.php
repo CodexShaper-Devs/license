@@ -51,7 +51,7 @@ class LicenseActivationService
         }
     }
 
-    private function validateSeats(License $license): void
+    private function validateSeats(License $license, $domain = ''): void
     {
         Log::info('Validating license seats', [
             'license_id' => $license->id,
@@ -62,9 +62,28 @@ class LicenseActivationService
         ]);
 
         // Get count of active activations
-        $activeActivationsCount = $license->activations()
+        $activations = $license->activations()
             ->where('is_active', true)
-            ->count();
+            ->get();
+
+        $activeActivationsCount  = 0;
+        foreach($activations as $activation) {
+            $activation_domain = $activation->domain;
+
+            if ($activation_domain && $activation_domain->is_active && $activation_domain->domain === $domain) {
+                throw new Exception(
+                    "Domain {$$activation_domain->domain} is already activated on this license"
+                );
+            }
+
+            $isLocalDomain = $this->domainService->isLocalDomain($activation_domain->domain);
+
+            if (! $isLocalDomain) {
+                $activeActivationsCount++;
+            }
+        }
+        
+    
 
         Log::info('Current active activations', [
             'license_id' => $license->id,
@@ -78,20 +97,6 @@ class LicenseActivationService
                 "License seat limit reached. Total seats: {$license->purchased_seats}, " .
                 "Active seats: {$activeActivationsCount}"
             );
-        }
-
-        // Validate if this domain is already activated on this license
-        if (!empty($license->domain)) {
-            $existingDomainActivation = $license->activations()
-                ->where('domain', $license->domain)
-                ->where('is_active', true)
-                ->first();
-
-            if ($existingDomainActivation) {
-                throw new Exception(
-                    "Domain {$license->domain} is already activated on this license"
-                );
-            }
         }
     }
 
@@ -110,8 +115,14 @@ class LicenseActivationService
                 // Validate license status first
                 $this->validateLicenseStatus($license);
 
-                // Then validate seats
-                $this->validateSeats($license);
+                $isLocalDomain = $this->domainService->isLocalDomain($activationData['domain'] ?? '');
+
+                if (! $isLocalDomain) {
+                    // Check domain availability
+                    $this->checkDomainAvailability($license, $activationData['domain']);
+                    // Then validate seats
+                    $this->validateSeats($license);
+                }
 
                 // Create activation record
                 $activation = $this->createActivationRecord($license, $activationData);
@@ -144,7 +155,9 @@ class LicenseActivationService
 
                 // Update activated seats count
                 $license->activated_seats = $license->activations()
-                    ->where('is_active', true)
+                    ->when(!$isLocalDomain, function ($query) {
+                        $query->where('is_active', true);
+                    })
                     ->count();
 
                 $license->save();
@@ -188,11 +201,8 @@ class LicenseActivationService
         });
     }
 
-    private function createDomainRecord(
-        License $license,
-        string $activationId,
-        string $domain
-    ): LicenseDomain {
+    private function createDomainRecord(License $license, string $activationId, string $domain ): LicenseDomain 
+    {
         // First create the base record
 
         $domainRecord = LicenseDomain::where('domain', $domain)->first();
@@ -301,12 +311,19 @@ class LicenseActivationService
         $existingDomain = LicenseDomain::where('domain', $domain)
             ->where('is_active', true)
             ->first();
+        
+        $activations = $license->activations()
+            ->where('is_active', true)
+            ->get();
 
-        if ($existingDomain) {
-            if ($existingDomain->license_id === $license->id) {
-                throw new RuntimeException("Domain {$domain} is already activated on this license");
-            } else {
-                throw new RuntimeException("Domain {$domain} is already activated on another license");
+        foreach($activations as $activation) {
+            $activation_domain = $activation->domain;
+            if ($activation_domain && $activation_domain->is_active && $activation_domain->domain === $domain) {
+                if ($existingDomain && $existingDomain->license_id === $license->id) {
+                    throw new RuntimeException("Domain {$domain} is already activated on this license");
+                } else {
+                    throw new RuntimeException("Domain {$domain} is already activated on another license");
+                }
             }
         }
     }

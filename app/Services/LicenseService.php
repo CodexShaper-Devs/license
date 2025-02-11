@@ -75,7 +75,7 @@ class LicenseService
                     'valid_from' => self::TIMESTAMP,
                     'valid_until' => $data['valid_until'] ?? null,
                     'trial_ends_at' => $data['trial_ends_at'] ?? null,
-                    'status' => 'pending',
+                    'status' => $data['status'] ?? 'pending',
                     'created_by' => self::USER,
                     'created_at' => self::TIMESTAMP,
                     'updated_at' => self::TIMESTAMP
@@ -530,7 +530,7 @@ class LicenseService
 
         // Log validation
         $this->repository->logLicenseEvent($license, 'validated', [
-            'validation_data' => $validationData,
+            'event_data' => $validationData,
             'result' => 'success'
         ]);
 

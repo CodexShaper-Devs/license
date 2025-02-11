@@ -45,7 +45,7 @@ class LicenseEvent extends Model
     ];
 
     protected $casts = [
-        'event_data' => 'array',
+        'event_data' => 'json',
         'previous_state' => 'array',
         'current_state' => 'array',
         'changes' => 'array',

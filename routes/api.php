@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\API\EnvatoLicenseController;
 use App\Http\Controllers\API\LicenseController;
 use Illuminate\Support\Facades\Route;
 
@@ -25,4 +26,34 @@ Route::prefix('v1')->group(function () {
             Route::post('renew', [LicenseController::class, 'renew']);
         });
     // });
+});
+
+Route::prefix('v1')->group(function () {
+    // Envato License Management Routes
+    Route::prefix('envato')->group(function () {
+        // Convert Envato Purchase to License
+        // Route::post('convert', [EnvatoLicenseController::class, 'convert']);
+        Route::post('activate', [EnvatoLicenseController::class, 'activateWithPurchaseCode']);
+        
+        // Verify Envato Purchase
+        Route::post('verify', [EnvatoLicenseController::class, 'verify']);
+        
+        // License Management
+        Route::prefix('licenses')->group(function () {
+            // Activate License
+            Route::post('{license}/activate', [EnvatoLicenseController::class, 'activate']);
+            
+            // Deactivate Domain
+            Route::post('{license}/deactivate', [EnvatoLicenseController::class, 'deactivate']);
+            
+            // Get License Details
+            Route::get('{license}', [EnvatoLicenseController::class, 'show']);
+            
+            // List Active Domains
+            Route::get('{license}/domains', [EnvatoLicenseController::class, 'domains']);
+            
+            // Verify Domain Status
+            Route::post('{license}/verify-domain', [EnvatoLicenseController::class, 'verifyDomain']);
+        });
+    });
 });

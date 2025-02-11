@@ -17,6 +17,8 @@ use App\Models\License;
 use App\Repositories\LicenseRepository;
 use App\Services\CurrentUserResolverService;
 use App\Services\EncryptionService;
+use App\Services\Envato\EnvatoActivationService;
+use App\Services\Envato\EnvatoLicenseService;
 use App\Services\EnvatoService;
 use App\Services\KeyManagementService;
 use App\Services\LicenseActivationService;
@@ -97,6 +99,19 @@ class LicenseManagerServiceProvider extends ServiceProvider
                 $app->make(EncryptionService::class),
                 $app->make(LicenseActivationService::class),
                 $app->make(LicenseDeactivationService::class),
+            );
+        });
+
+        $this->app->singleton(EnvatoLicenseService::class, function ($app) {
+            return new EnvatoLicenseService(
+                $app->make(LicenseService::class)
+            );
+        });
+
+        $this->app->singleton(EnvatoActivationService::class, function ($app) {
+            return new EnvatoActivationService(
+                $app->make(LicenseActivationService::class),
+                $app->make(EnvatoLicenseService::class),
             );
         });
 

@@ -9,7 +9,8 @@ class ActivateLicenseRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'license_key' => 'required|string',
+            'purchase_code' => 'required|string',
+            'item_id' => 'required|string',
             'domain' => 'required|string',
             'device_identifier' => 'nullable|string',
             'device_name' => 'nullable|string',

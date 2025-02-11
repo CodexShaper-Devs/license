@@ -131,13 +131,6 @@ class LicenseController extends Controller
     public function deactivate(DeactivateLicenseRequest $request): JsonResponse
     {
         try {
-            // $data = $request->validated();
-
-            // return response()->json([
-            //     'success' => true,
-            //     'message' => 'License deactivated successfully',
-            //     'data' => $data
-            // ]);
             
             $response = $this->licenseService->deactivateLicense(
                 $request->license_key,

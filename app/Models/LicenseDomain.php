@@ -16,6 +16,7 @@ class LicenseDomain extends Model
 
     protected $fillable = [
         'license_id',
+        'activation_id',
         'domain',
         'is_primary',
         'is_active',

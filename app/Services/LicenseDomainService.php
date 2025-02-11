@@ -16,10 +16,32 @@ class LicenseDomainService
     private const CURRENT_TIME = '2025-02-10 08:08:37';
     private const CURRENT_USER = 'maab16';
 
+    private const LOCAL_DOMAIN_PATTERNS = [
+        '/\.test$/',
+        '/\.local$/',
+        '/\.localhost$/',
+        '/^localhost/',
+        '/^127\.0\.0\.1$/',
+        '/^::1$/',
+    ];
+
     public function __construct(
         private readonly DomainValidator $validator,
         private readonly LicenseSecurityService $securityService
     ) {}
+
+    public function isLocalDomain(string $domain): bool
+    {
+        $domain = strtolower($domain);
+        
+        foreach (self::LOCAL_DOMAIN_PATTERNS as $pattern) {
+            if (preg_match($pattern, $domain)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function validateDomain(License $license, string $domain): string
     {

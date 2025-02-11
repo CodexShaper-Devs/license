@@ -60,7 +60,7 @@ class LicenseActivation extends Model
 
     public function domain()
     {
-        return $this->belongsTo(LicenseDomain::class, 'license_domain_id');
+        return $this->hasOne(LicenseDomain::class, 'activation_id');
     }
 
     // Scopes
