@@ -20,8 +20,8 @@ return new class extends Migration
             $table->enum('type', ['domain', 'machine', 'user']);
             
             // Device Information
-            $table->string('device_identifier');
-            $table->string('device_name');
+            $table->string('device_identifier')->nullable();
+            $table->string('device_name')->nullable();
             $table->json('hardware_hash')->nullable();
             $table->json('system_info')->nullable();
             

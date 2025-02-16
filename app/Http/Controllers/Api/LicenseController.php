@@ -14,6 +14,7 @@ use App\Http\Requests\License\{
     RenewLicenseRequest
 };
 use App\Repositories\LicenseRepository;
+use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;

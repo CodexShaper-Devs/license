@@ -13,6 +13,7 @@ class LicensePlanSeeder extends Seeder
     {
         $plans = [
             [
+                'id' => '9e39b4f5-5b99-4976-b40f-a6e40ba1d380',
                 'name' => 'Regular License',
                 'slug' => 'regular-license',
                 'description' => 'Single domain license for one year',
@@ -40,6 +41,7 @@ class LicensePlanSeeder extends Seeder
                 'created_by' => self::USER,
             ],
             [
+                'id' => '9e39b4f5-5d24-491b-a0db-8613a2bcf73a',
                 'name' => 'Extended License',
                 'slug' => 'extended-license',
                 'description' => 'Multiple domain license with lifetime updates',
@@ -67,6 +69,7 @@ class LicensePlanSeeder extends Seeder
                 'created_by' => self::USER,
             ],
             [
+                'id' => '9e39b4f5-5e33-4626-95b3-1f34b1412d16',
                 'name' => 'Trial License',
                 'slug' => 'trial-license',
                 'description' => 'Try all features for 14 days',

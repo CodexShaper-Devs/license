@@ -31,11 +31,11 @@ return [
     */
     'products' => [
         '55973900' => [ // Envato Item ID
-            'id' => '9e2d8aee-1637-4827-8948-d362efebaa50',
+            'id' => '9e39b4f5-5995-4679-9bdf-ea26a6bd52ce', // Internal Product ID
             'name' => 'Edulab LMS - Laravel Learning Management System with Tailwind CSS',
             'licenses' => [
                 'regular' => [
-                    'plan_id' => '9e2d8aee-2116-4b21-b5e9-27c7ff33267c',
+                    'plan_id' => '9e39b4f5-5b99-4976-b40f-a6e40ba1d380', // Internal Plan ID
                     'seats' => 1,
                     'domains' => [
                         'production' => 1,
@@ -50,7 +50,7 @@ return [
                     'support_period' => 6 // months
                 ],
                 'extended' => [
-                    'plan_id' => '9e2d8aee-22b1-4eee-a3e6-05afcbbd5c26',
+                    'plan_id' => '9e39b4f5-5d24-491b-a0db-8613a2bcf73a', // Internal Plan ID
                     'seats' => 1,
                     'domains' => [
                         'production' => 5,

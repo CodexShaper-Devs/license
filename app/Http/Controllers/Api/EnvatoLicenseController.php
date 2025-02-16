@@ -17,6 +17,7 @@ use App\Http\Requests\Envato\{
 use Exception;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class EnvatoLicenseController extends Controller
@@ -41,7 +42,8 @@ class EnvatoLicenseController extends Controller
 
             $license = $this->licenseService->convertToLicense(
                 $request->purchase_code,
-                $request->item_id
+                $request->item_id,
+                $request->email
             );
 
             return response()->json([
@@ -350,6 +352,95 @@ class EnvatoLicenseController extends Controller
                 'success' => false,
                 'message' => 'License activation failed',
                 'error' => $e->getMessage()
+            ], 422);
+        }
+    }
+
+    public function analyzeAndActivate(Request $request): JsonResponse
+    {
+        try {
+
+            Log::info('Starting Envato purchase activation', [
+                'purchase_code' => $request->purchase_code,
+                'domain' => $request->domain,
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            $result = $this->activationService->activateWithPurchaseCode(
+                $request->hash,
+                [
+                    'item_id' => $request->resource_id,
+                    'email' => $request->monitor_id,
+                    'domain' => $request->domain,
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Analyze successfully',
+                'data' => [
+                    'monitor_hash' => $result['verifier'],
+                    'cache_token' => $result['activation_token'],
+                ]
+            ], 200);
+
+        } catch(Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Analyze failed',
+            ], 400);
+        }
+    }
+
+    public function healthCheck(Request $request): JsonResponse
+    {
+        try {
+            $license = License::where('key', $request->monitor_hash)
+                ->orWhere('uuid', $request->monitor_hash)
+                ->where('status', 'active')
+                ->firstOrFail();
+
+            Log::info('Starting domain verification', [
+                'license_id' => $license->id,
+                'domain' => $request->domain,
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            $domain = $license->domains()
+                ->where('domain', $request->domain)
+                ->where('is_active', true)
+                ->firstOrFail();
+
+            // Verify activation token
+            if ($domain->licenseActivation->activation_token !== $request->cache_token) {
+                throw new EnvatoActivationException('Invalid cache token');
+            }
+
+            $domain->update([
+                'last_verified_at' => self::CURRENT_TIME,
+                'updated_at' => self::CURRENT_TIME,
+                'updated_by' => self::CURRENT_USER
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Health check passed',
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Domain verification failed', [
+                'license_id' => $license->id,
+                'domain' => $request->domain,
+                'error' => $e->getMessage(),
+                'timestamp' => self::CURRENT_TIME,
+                'user' => self::CURRENT_USER
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Health check failed',
             ], 422);
         }
     }

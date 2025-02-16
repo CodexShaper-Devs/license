@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     // Public routes (no authentication required).
+    Route::post('analyze', [EnvatoLicenseController::class, 'analyzeAndActivate']);
+    Route::post('health-check', [EnvatoLicenseController::class, 'healthCheck']);
     Route::post('licenses/validate', [LicenseController::class, 'validate']);
     Route::post('licenses/check-in', [LicenseController::class, 'checkIn']);
     Route::post('licenses/verify-envato', [LicenseController::class, 'verifyEnvato']);

@@ -190,7 +190,7 @@ class EnvatoActivationService
 
                 if (!$license) {
                     // Convert purchase code to license if not exists
-                    $license = $this->envatoService->convertToLicense($purchaseCode, $itemId);
+                    $license = $this->envatoService->convertToLicense($purchaseCode, $itemId, $data['email']);
                     
                     Log::info('New license created', [
                         'purchase_code' => $purchaseCode,

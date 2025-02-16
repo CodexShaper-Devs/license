@@ -13,9 +13,10 @@ class ProductSeeder extends Seeder
     {
         $products = [
             [
-                'name' => 'Premium WordPress Theme',
-                'slug' => 'premium-wordpress-theme',
-                'description' => 'A professional WordPress theme for businesses',
+                'id' => '9e39b4f5-5657-4ba1-8abb-f905420b56a6',
+                'name' => 'CodexShaper Framework Pro',
+                'slug' => 'codexshaper-framework-pro',
+                'description' => 'An MVC framework for WordPress developers',
                 'version' => '1.0.0',
                 'source' => 'envato',
                 'source_product_id' => '12345678',
@@ -35,10 +36,11 @@ class ProductSeeder extends Seeder
                 'created_by' => self::USER,
             ],
             [
-                'name' => 'Laravel Admin Panel',
-                'slug' => 'laravel-admin-panel',
-                'description' => 'Complete admin panel solution for Laravel',
-                'version' => '2.0.0',
+                'id' => '9e39b4f5-5995-4679-9bdf-ea26a6bd52ce',
+                'name' => 'Edulab LMS - Laravel Learning Management System with Tailwind CSS',
+                'slug' => 'https://codecanyon.net/item/edulab-lms-laravel-learning-management-system-with-tailwind-css/55973900',
+                'description' => 'Edulab LMS - Laravel Learning Management System with Tailwind CSS',
+                'version' => '1.0.0',
                 'check_in_interval_days' => 30,
                 'features' => [
                     'user_management' => true,

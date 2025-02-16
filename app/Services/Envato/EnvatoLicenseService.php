@@ -6,6 +6,7 @@ use App\Exceptions\EnvatoVerificationException;
 use App\Models\License;
 use App\Models\EnvatoLicense;
 use App\Models\EnvatoPurchase;
+use App\Models\User;
 use App\Services\LicenseService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use Exception;
+use Illuminate\Support\Facades\Hash;
 
 class EnvatoLicenseService
 {
@@ -73,7 +75,7 @@ class EnvatoLicenseService
         ];
     }
 
-    public function convertToLicense(string $purchaseCode, $itemId): License
+    public function convertToLicense(string $purchaseCode, $itemId, $email): License
     {
         Log::info('Starting license conversion', [
             'purchase_code' => $purchaseCode,
@@ -93,10 +95,22 @@ class EnvatoLicenseService
         $supportExpiry = Carbon::parse($purchaseData['sold_at'])
             ->addMonths($features['support_period']);
 
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            $user = User::create([
+                'name' => $purchaseData['buyer'],
+                'email' => $email,
+                'password' => Hash::make($purchaseCode),
+                'is_admin' => 0,
+                'email_verified_at' => Carbon::now()->toDateTimeString(),
+            ]);
+        }
+
         $license = $this->licenseService->createLicense([
             'product_id' => $features['product']['id'],
             'plan_id' => $features['product']['plan_id'],
-            'user_id' => 1,
+            'user_id' =>  $user->id,
             'type' => 'lifetime',
             'source' => 'envato',
             'source_purchase_code' => $purchaseCode,
@@ -114,7 +128,7 @@ class EnvatoLicenseService
     public function verifyPurchaseCode(string $code, $itemId): array
     {
         $this->itemId = $itemId;
-        $cacheKey = "envato_purchase_{$itemId}_{$code}";
+        // $cacheKey = "envato_purchase_{$itemId}_{$code}";
 
         // return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($code) {
             Log::info('Verifying Envato purchase code', [
