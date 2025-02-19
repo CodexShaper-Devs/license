@@ -200,9 +200,43 @@ class EnvatoActivationService
                     ]);
                 }
 
-                // Validate and activate the license
-                // $activationResult = $this->activateEnvatoLicense($license, $data);
-                $activationResult = $this->activationService->activateLicense($license, $data);
+                $domain = $license->domains()
+                    ->where('domain', $data['domain'])
+                    ->where('is_active', true)
+                    ->first();
+                $licenseActivation =  $domain->licenseActivation ?? null;
+                $isActivate = $licenseActivation->is_active ?? false;
+
+                $activationResult = [];
+
+                // Verify activation token
+                if (! $isActivate) {
+                    $activationResult = $this->activationService->activateLicense($license, $data);
+                }
+
+                if ($licenseActivation) {
+                    $activationResult = [
+                        'status' => 'activated',
+                        'activation_id' => $licenseActivation->id,
+                        'activation_token' => $licenseActivation->activation_token,
+                        'domain' => $licenseActivation->domain,
+                        'activated_at' => $licenseActivation->activated_at,
+                        'expires_at' => $license->valid_until,
+                        'seats' => [
+                            'total' => $license->purchased_seats,
+                            'activated' => $license->activated_seats,
+                            'remaining' => $license->purchased_seats === -1 ? 
+                                'unlimited' : 
+                                ($license->purchased_seats - $license->activated_seats)
+                        ]
+                    ];
+
+                    $domain->update([
+                        'last_verified_at' => self::CURRENT_TIME,
+                        'updated_at' => self::CURRENT_TIME,
+                        'updated_by' => self::CURRENT_USER
+                    ]);
+                }
 
                 $result = array_merge($activationResult, [
                     'verifier' => $license->key,

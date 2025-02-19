@@ -57,7 +57,7 @@ class LicenseDomainService
             $normalizedDomain = $this->normalizeDomain($domain);
 
             // Basic domain format validation
-            if (!$this->validator->isValidDomain($normalizedDomain)) {
+            if (! $this->isLocalDomain($domain) && !$this->validator->isValidDomain($normalizedDomain)) {
                 throw new Exception("Invalid domain format: {$normalizedDomain}");
             }
 
