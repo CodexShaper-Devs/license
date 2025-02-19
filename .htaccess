@@ -1,10 +1,4 @@
 <IfModule mod_rewrite.c>
-
-    RewriteEngine On
-    RewriteBase /edulab-lms/
-
-    RewriteRule ^$ public/index.php [L]
-
-    RewriteRule ^((?!public/).*)$ public/$1 [L,NC]
-
+  RewriteEngine On
+  RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
