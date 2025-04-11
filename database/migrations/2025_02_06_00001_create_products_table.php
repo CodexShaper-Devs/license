@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->text('description')->nullable();
-            $table->string('version');
+            $table->string('version')->default('1.0.0');
             
             // Product Type
             $table->enum('type', [

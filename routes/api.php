@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\API\EnvatoLicenseController;
 use App\Http\Controllers\API\LicenseController;
+use App\Http\Controllers\API\ProductController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('v1')->group(function () {
+    Route::post('products', [ProductController::class, 'store']);
     // Public routes (no authentication required).
     Route::post('analyze', [EnvatoLicenseController::class, 'analyzeAndActivate']);
     Route::post('health-check', [EnvatoLicenseController::class, 'healthCheck']);
@@ -28,14 +30,13 @@ Route::prefix('v1')->group(function () {
             Route::post('renew', [LicenseController::class, 'renew']);
         });
     // });
-});
 
-Route::prefix('v1')->group(function () {
     // Envato License Management Routes
     Route::prefix('envato')->group(function () {
         // Convert Envato Purchase to License
         // Route::post('convert', [EnvatoLicenseController::class, 'convert']);
         Route::post('activate', [EnvatoLicenseController::class, 'activateWithPurchaseCode']);
+        Route::post('deactivate', [EnvatoLicenseController::class, 'deactivateWithPurchaseCode']);
         
         // Verify Envato Purchase
         Route::post('verify', [EnvatoLicenseController::class, 'verify']);

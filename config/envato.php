@@ -71,15 +71,16 @@ return [
                 'version' => '1.0'
             ]
         ],
-        '87654321' => [ // Another product
-            'id' => 'LMS-STARTER',
-            'name' => 'LMS Hub Starter',
+        '51980727' => [ // Envato Item ID
+            'id' => '9e39b4f5-5995-4679-9bdf-ea26a6bd52ce', // Internal Product ID
+            'name' => 'Holaa - OTT Platform and Video Streaming WordPress Theme',
             'licenses' => [
                 'regular' => [
+                    'plan_id' => '9e39b4f5-5b99-4976-b40f-a6e40ba1d380', // Internal Plan ID
                     'seats' => 1,
                     'domains' => [
                         'production' => 1,
-                        'local' => -1
+                        'local' => -1 // Unlimited
                     ],
                     'features' => [
                         'updates' => true,
@@ -87,15 +88,30 @@ return [
                         'multisite' => false,
                         'white_label' => false
                     ],
-                    'support_period' => 6
+                    'support_period' => 6 // months
+                ],
+                'extended' => [
+                    'plan_id' => '9e39b4f5-5d24-491b-a0db-8613a2bcf73a', // Internal Plan ID
+                    'seats' => 1,
+                    'domains' => [
+                        'production' => 5,
+                        'local' => -1 // Unlimited
+                    ],
+                    'features' => [
+                        'updates' => true,
+                        'support' => true,
+                        'multisite' => true,
+                        'white_label' => true
+                    ],
+                    'support_period' => 12 // months
                 ]
             ],
             'metadata' => [
-                'category' => 'LMS',
-                'platform' => 'Laravel',
-                'version' => '1.0'
+                'category' => 'Dioexpress',
+                'platform' => 'WordPress',
+                'version' => '1.0.0'
             ]
-        ]
+        ],
     ],
 
     /*

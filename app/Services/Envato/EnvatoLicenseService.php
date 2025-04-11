@@ -6,6 +6,7 @@ use App\Exceptions\EnvatoVerificationException;
 use App\Models\License;
 use App\Models\EnvatoLicense;
 use App\Models\EnvatoPurchase;
+use App\Models\LicenseDomain;
 use App\Models\User;
 use App\Services\LicenseService;
 use Illuminate\Support\Facades\Http;
@@ -167,6 +168,46 @@ class EnvatoLicenseService
 
             return $data;
         // });
+    }
+
+    public function deactivateWithPurchaseCode($data): array {
+        try {
+            $domain = LicenseDomain::where('domain', $data['domain'])
+                ->where('is_active', true)
+                ->firstOrFail();
+
+            if (! $domain) {
+                throw new EnvatoVerificationException('Domain not found');
+            }
+
+            $license = $domain->license ?? null;
+
+            if (! $license) {
+                throw new EnvatoVerificationException('License not found');
+            }
+
+            if ($license->source_purchase_code !== $data['purchase_code']) {
+                throw new EnvatoVerificationException('Invalid purchase code');
+            }
+
+            $activation = $domain->licenseActivation ?? null;
+
+            if (! $activation) {
+                throw new EnvatoVerificationException('Activation not found');
+            }
+
+            return $this->licenseService->deactivateByDomain(
+                $license->key, 
+                $data['domain'], 
+                $activation->activation_token
+            );
+
+        } catch (\Exception $e) {
+            Log::error('Domain-based deactivation failed', [
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
 }

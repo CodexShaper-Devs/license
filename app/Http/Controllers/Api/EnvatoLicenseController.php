@@ -19,6 +19,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class EnvatoLicenseController extends Controller
 {
@@ -335,7 +336,7 @@ class EnvatoLicenseController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'License activated successfully',
+                'message' => 'License deactivated successfully',
                 'data' => $result
             ]);
 
@@ -353,6 +354,41 @@ class EnvatoLicenseController extends Controller
                 'message' => 'License activation failed',
                 'error' => $e->getMessage()
             ], 422);
+        }
+    }
+
+    public function deactivateWithPurchaseCode(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'purchase_code' => 'required|string',
+            'email' => 'required|string',
+            'domain' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 400);
+        }
+
+        try {
+            
+            $result = $this->licenseService->deactivateWithPurchaseCode($request->all());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Domain deactivated successfully',
+                'data' => $result
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to deactivate domain',
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
 
